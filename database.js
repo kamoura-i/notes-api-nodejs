@@ -2,7 +2,7 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
-const pool = new Pool({
+export const pool = new Pool({
     user: 'notes_app',
     host: 'localhost',
     database: 'notes_db',
@@ -11,13 +11,3 @@ const pool = new Pool({
 });
 
 
-pool.query('SELECT NOW()')
-    .then(resultado => {
-        console.log('Conexão com PostgreSQL realizada!');
-        console.log(resultado.rows);
-        pool.end();
-    })
-    .catch(erro => {
-        console.error('Erro na conexão:', erro.message);
-        pool.end();
-    });

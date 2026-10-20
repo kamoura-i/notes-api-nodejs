@@ -1,29 +1,48 @@
 import http from 'http';
+import { pool } from './database.js';
 
-const notes = [
-    {
-        id: 1,
-        title: "Apologia de Socrates",
-        content: "É um livro em que vemos Socrates sendo julgado por cerca de 500 pessoas e sendo acusado de corromper a juventude"
-    },
-        {
-        id: 2,
-        title: "Confissões de Santo Agostinho",
-        content: "Agostinho narra sua infância, sua juventude tumultuada em Cartago, a busca intelectual através do maniqueísmo e da filosofia"
-    },
-        {
-        id: 3,
-        title: "O Hobbit",
-        content: "É um livro sobre fantasia em que temos, como protagonista, Biblo Bolseiro, um Hobbit. Nessa Histórias vemos as aventuras de Biblo com Gandalf e os Anãos"
-    },
-]
+// const notes = [
+//     {
+//         id: 1,
+//         title: "Apologia de Socrates",
+//         content: "É um livro em que vemos Socrates sendo julgado por cerca de 500 pessoas e sendo acusado de corromper a juventude"
+//     },
+//         {
+//         id: 2,
+//         title: "Confissões de Santo Agostinho",
+//         content: "Agostinho narra sua infância, sua juventude tumultuada em Cartago, a busca intelectual através do maniqueísmo e da filosofia"
+//     },
+//         {
+//         id: 3,
+//         title: "O Hobbit",
+//         content: "É um livro sobre fantasia em que temos, como protagonista, Biblo Bolseiro, um Hobbit. Nessa Histórias vemos as aventuras de Biblo com Gandalf e os Anãos"
+//     },
+// ]
 
 let proximoId = 4;
 
 
-const server = http.createServer((req, res) =>{
+const server = http.createServer( async (req, res) =>{
     if(req.method === 'GET' && req.url === "/notes"){
-        return res.end(JSON.stringify(notes))
+        try{
+            const result = await pool.query('SELECT * FROM notes')
+
+            res.writeHead(200,{
+                'Content-Type': 'application/json'
+            })
+            return res.end(JSON.stringify(result.rows))
+        }
+        catch(error){
+            console.error('Erro ao buscar notas', error.message)
+
+            res.writeHead(500, {
+                'Content-Type': 'application/json'
+            })
+
+            return res.end(JSON.stringify({
+                'mensagem': 'Erro interno do servidor'
+            }))
+        }
     }
 
 
@@ -31,8 +50,9 @@ const server = http.createServer((req, res) =>{
         const partes = req.url.split('/')
         const id = Number(partes[2])
 
-        const note = notes.find((note) => note.id === id)
-
+        try{
+        const result = await pool.query('SELECT * FROM notes WHERE id = $1', [id])
+        const note = result.rows[0]
         if(!note){
             res.writeHead(404,{
                 'Content-Type': 'application/json'
@@ -47,7 +67,22 @@ const server = http.createServer((req, res) =>{
         res.writeHead(200,{
             'Content-Type': 'application/json'
         })
-        res.end(JSON.stringify(note))
+       return  res.end(JSON.stringify(note))
+
+        }
+        catch(error){
+            console.error('Erro ao busca notas', error.message)
+
+            res.writeHead(500,{
+                'Content-Type': 'application/json'
+            })
+
+            return res.end(JSON.stringify({
+                'mensagem': 'Erro interno do servidor'
+            }))
+        }
+
+
 
 
 
@@ -59,18 +94,22 @@ const server = http.createServer((req, res) =>{
             body+=chunk
         })
 
-        req.on('end', () =>{
+        req.on('end', async () =>{
+           
+            try{
             const dados = JSON.parse(body)
+            if(!dados.title || !dados.content){
+                res.writeHead(400, {
+                    'Content-Type': 'application/json'
+                })
 
-            const newNote = {
-                id: proximoId,
-                title: dados.title,
-                content: dados.content
+                return res.end(JSON.stringify({
+                    "mensagem": "Um ou mais dados, estão vazios"
+                }))
             }
-             proximoId++
-
-            notes.push(newNote)
-
+            
+            await pool.query('INSERT INTO notes (title, content) VALUES($1,$2) RETURNING *',[dados.title, dados.content]);
+            
             res.writeHead(201, {
              'Content-Type': 'application/json'
             })
@@ -78,6 +117,18 @@ const server = http.createServer((req, res) =>{
             res.end(JSON.stringify({
                 'mensagem': 'Nota criada com sucesso!'
             }))
+            }
+            catch(error){
+                console.error('Erro na criação da anotação', error.message)
+                res.writeHead(500,{
+                    'Content-Type': 'application/json'
+                })
+                return res.end(JSON.stringify({
+                    'mensagem': 'Erro interno do servidor'
+                }))
+            }
+            
+
         })
 
     }
@@ -85,9 +136,11 @@ const server = http.createServer((req, res) =>{
     if(req.method === 'DELETE' &&  req.url.startsWith('/notes/')){
         const partes = req.url.split('/')
         const id = Number(partes[2])
-        const indice = notes.findIndex((note) => note.id === id)
 
-        if(indice === -1) {
+        try{
+        const result =  await pool.query('DELETE FROM notes WHERE id = $1 RETURNING *', [id])
+
+        if(result.rowCount === 0) {
         res.writeHead(404,{
             "Content-Type": "application/json"
         })
@@ -99,8 +152,6 @@ const server = http.createServer((req, res) =>{
         ) 
         }
         
-        notes.splice(indice, 1)
-
 
         res.writeHead(200, {
             'Content-Type': 'application/json'
@@ -109,41 +160,47 @@ const server = http.createServer((req, res) =>{
         res.end(JSON.stringify({
             'mensagem': 'Nota excluída com sucesso!'
             }))
+        } catch(error){
+            console.error('Erro ao excluir nota', error.message)
+
+            res.writeHead(500,{
+                'Content-Type': 'application/json'
+            })
+
+            return res.end(JSON.stringify({
+                'mensagem': 'Erro interno do servidor'
+            }))            
+        }
 
 
 
     }
 
     if(req.method === 'PATCH' && req.url.startsWith('/notes/')){
-        const partes = req.url.split('/')
-        const id = Number(partes[2])
-        const note = notes.find((note) => note.id === id)
-
         let body = ''
-
         req.on('data',(chunk) =>{
             body+=chunk
         })
 
-        req.on('end', () => {
+        req.on('end', async () => {
+
+            try{
             const dados = JSON.parse(body)
             
-            if(!note){
+            const result = await pool.query('UPDATE notes SET title = COALESCE($1, title), content = COALESCE($2, content) WHERE id = $3 RETURNING *', [dados.title, dados.content, dados.id])
+
+            
+            if(!result.rows[0]){
                 res.writeHead(404, {
                     'Content-Type': 'application/json'
                 })
 
                 return res.end(JSON.stringify({
                     'mensagem': 'Anotação não encontrada'
+                    
                 }))
             }
 
-            if(dados.title !== undefined){
-                note.title = dados.title
-            }
-            if(dados.content !== undefined){
-                note.content = dados.content
-            }
 
             res.writeHead(200, {
                 'Content-Type': 'application/json'
@@ -152,6 +209,18 @@ const server = http.createServer((req, res) =>{
             res.end(JSON.stringify({
                 'mensagem': 'Anotação atualizada!'
             }))
+            } catch(error){
+            console.error('Erro ao atualizar nota', error.message)
+
+            res.writeHead(500,{
+                'Content-Type': 'application/json'
+            })
+
+            return res.end(JSON.stringify({
+                'mensagem': 'Erro interno do servidor'
+            }))                    
+            }
+
         }
         )
     }
